@@ -1,4 +1,6 @@
 aiogram==3.15.0
+pydantic==2.10.5
+pydantic-core==2.27.2
 groq
 aiohttp
 python-dotenv
