@@ -17,6 +17,7 @@ dp = Dispatcher()
 user_news_cache = {}
 user_seen_ids = {}
 
+# Нижняя клавиатура для быстрого доступа
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [
@@ -28,11 +29,19 @@ main_keyboard = ReplyKeyboardMarkup(
     is_persistent=True
 )
 
-def get_article_inline_keyboard():
+def get_article_inline_keyboard(category="world"):
+    """Кнопки прямо под каждым сообщением"""
+    rf_check = "✅ " if category == "rf" else ""
+    world_check = "✅ " if category == "world" else ""
+    
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="✍️ Сгенерировать готовый SMM-пост", callback_data="generate_ai_post"),
+                InlineKeyboardButton(text=f"{rf_check}🇷🇺 Космос РФ", callback_data="select_cat_rf"),
+                InlineKeyboardButton(text=f"{world_check}🌍 Космос Мира", callback_data="select_cat_world")
+            ],
+            [
+                InlineKeyboardButton(text="✍️ Сгенерировать SMM-пост", callback_data="generate_ai_post")
             ],
             [
                 InlineKeyboardButton(text="🌐 Перевод оригинала", callback_data="translate_full"),
@@ -57,13 +66,11 @@ async def translate_text(text: str) -> str:
                     if result:
                         return result
     except Exception as e:
-        print(f"Ошибка перевода Google: {e}")
+        print(f"Ошибка перевода: {e}")
     return text
 
 async def generate_smm_with_ai(ru_title: str, ru_summary: str, url: str) -> str:
-    """Генерация живого, глубоко переработанного SMM-поста на русском языке"""
-    
-    # 1. Если подключен ключ Groq (нейросеть Llama 3)
+    """Генерация готового SMM-поста"""
     if GROQ_API_KEY:
         groq_url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -74,12 +81,11 @@ async def generate_smm_with_ai(ru_title: str, ru_summary: str, url: str) -> str:
             "Ты редактор популярного Telegram-канала про космос и науку. "
             "Перепиши новость ниже в захватывающий, полностью готовый к публикации пост на РУССКОМ языке.\n\n"
             "Требования:\n"
-            "1. Придумай яркий, привлекающий внимание заголовок.\n"
-            "2. Перескажи суть своими словами (НЕ копируй предложенный текст слово в слово, сделай интересный рерайтинг).\n"
-            "3. Объясни коротко, почему это событие действительно важно для отрасли.\n"
-            "4. Добавь аккуратные хэштеги в конце.\n\n"
-            f"Заголовок новости: {ru_title}\n"
-            f"Описание: {ru_summary}"
+            "1. Яркий привлекательный заголовок.\n"
+            "2. Выжимка сути простым и понятным языком.\n"
+            "3. Почему это событие важно.\n"
+            "4. Тематические хэштеги в конце.\n\n"
+            f"Заголовок: {ru_title}\nТекст: {ru_summary}"
         )
         payload = {
             "model": "llama-3.3-70b-versatile",
@@ -93,27 +99,24 @@ async def generate_smm_with_ai(ru_title: str, ru_summary: str, url: str) -> str:
                         res = await resp.json()
                         return res["choices"][0]["message"]["content"]
         except Exception as e:
-            print(f"Ошибка Groq ИИ: {e}")
+            print(f"Ошибка Groq: {e}")
 
-    # 2. Если ключа нейросети нет — красивый, глубоко адаптированный шаблон
     formatted_title = ru_title.strip()
     if not formatted_title.endswith(('.', '!', '?')):
         formatted_title += "!"
 
-    post_text = (
+    return (
         f"🔥 **{formatted_title}**\n\n"
         f"👨‍🚀 {ru_summary}\n\n"
-        f"📌 **Главные подробности:**\n"
-        f"Экипаж завершил длительную космическую миссию и благополучно возвратился на Землю. "
-        f"Все запланированные научные эксперименты и технические задачи на орбите были выполнены в полном объеме.\n\n"
-        f"💬 *Делитесь мнением про эту миссию в комментариях!*\n\n"
-        f"🏷 #космос #роскосмос #наса #мкс #технологии\n"
-        f"🔗 [Первоисточник статьи]({url})"
+        f"📌 **Главные детали:**\n"
+        f"Космическая миссия продолжается, открывая новые возможности для науки и технологий.\n\n"
+        f"💬 *Делитесь мнением в комментариях!*\n\n"
+        f"🏷 #космос #наука #технологии #астрономия\n"
+        f"🔗 [Читать источник]({url})"
     )
-    return post_text
 
 async def fetch_space_news():
-    url = "https://api.spaceflightnewsapi.net/v4/articles/?limit=20"
+    url = "https://api.spaceflightnewsapi.net/v4/articles/?limit=30"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=10) as response:
@@ -126,20 +129,36 @@ async def fetch_space_news():
 
 async def send_news_item(user_id: int, message_or_callback, category="world"):
     articles = user_news_cache.get(f"{user_id}_{category}", [])
-    seen = user_seen_ids.get(user_id, set())
+    
+    # Если кэш пуст — загружаем новости
+    if not articles:
+        all_articles = await fetch_space_news()
+        if category == "rf":
+            articles = [
+                art for art in all_articles 
+                if any(w in (art.get("title","") + art.get("summary","")).lower() for w in ["russia", "roscosmos", "soyuz", "proton", "angara", "kud-sverchkov", "mikaev", "cosmonaut"])
+            ]
+            if not articles:
+                articles = all_articles
+        else:
+            articles = all_articles
+        user_news_cache[f"{user_id}_{category}"] = articles
 
+    seen = user_seen_ids.get(user_id, set())
     selected_article = None
+
     for art in articles:
         if art.get("id") not in seen:
             selected_article = art
             break
 
     if not selected_article:
-        txt = "🎉 Ты просмотрел все свежие новости в этой категории!"
+        txt = "🎉 Ты просмотрел все новости в этой категории! Переключи категорию кнопками ниже."
+        inline_kb = get_article_inline_keyboard(category)
         if isinstance(message_or_callback, types.Message):
-            await message_or_callback.answer(txt, reply_markup=main_keyboard)
+            await message_or_callback.answer(txt, reply_markup=inline_kb)
         else:
-            await message_or_callback.message.answer(txt, reply_markup=main_keyboard)
+            await message_or_callback.message.answer(txt, reply_markup=inline_kb)
             await message_or_callback.answer()
         return
 
@@ -155,7 +174,7 @@ async def send_news_item(user_id: int, message_or_callback, category="world"):
     ru_title = await translate_text(title)
     ru_summary = await translate_text(summary)
 
-    region_tag = "🇷🇺 РОССИЯ И РОСКОСМОС" if category == "rf" else "🌍 МИРОВОЙ КОСМОС"
+    region_tag = "🇷🇺 КОСМОС РФ И РОСКОСМОС" if category == "rf" else "🌍 МИРОВОЙ КОСМОС"
 
     user_news_cache[f"{user_id}_current"] = {
         "raw_title": title,
@@ -177,25 +196,26 @@ async def send_news_item(user_id: int, message_or_callback, category="world"):
     )
 
     target_msg = message_or_callback if isinstance(message_or_callback, types.Message) else message_or_callback.message
+    inline_kb = get_article_inline_keyboard(category)
 
     try:
         if image_url:
             await target_msg.answer_photo(
                 photo=image_url,
                 caption=caption_text,
-                reply_markup=get_article_inline_keyboard(),
+                reply_markup=inline_kb,
                 parse_mode="Markdown"
             )
         else:
             await target_msg.answer(
                 text=caption_text,
-                reply_markup=get_article_inline_keyboard(),
+                reply_markup=inline_kb,
                 parse_mode="Markdown"
             )
     except Exception:
         await target_msg.answer(
             text=caption_text,
-            reply_markup=get_article_inline_keyboard(),
+            reply_markup=inline_kb,
             parse_mode="Markdown"
         )
 
@@ -206,36 +226,31 @@ async def send_news_item(user_id: int, message_or_callback, category="world"):
 @dp.message(Command("menu"))
 async def start_handler(message: types.Message):
     await message.answer(
-        "🚀 **Привет! Я твой ИИ-ассистент по космическим новостям.**\n\n"
-        "Выбери интересующую категорию внизу 👇",
+        "🚀 **Главное меню космического бота!**\n\n"
+        "Выбери категорию новостей ниже 👇",
         reply_markup=main_keyboard,
         parse_mode="Markdown"
     )
 
 @dp.message(F.text == "🌍 Новости космоса Мира")
 async def world_news_handler(message: types.Message):
-    await message.answer("🛸 Ищу и перерабатываю мировые новости...")
-    articles = await fetch_space_news()
-    if not articles:
-        await message.answer("❌ Ошибка загрузки новостей.", reply_markup=main_keyboard)
-        return
-
-    user_news_cache[f"{message.from_user.id}_world"] = articles
+    await message.answer("🌍 Переключаю на новости мирового космоса...")
     await send_news_item(message.from_user.id, message, category="world")
 
 @dp.message(F.text == "🇷🇺 Новости космоса РФ")
 async def rf_news_handler(message: types.Message):
-    await message.answer("🛸 Сканирую новости космической отрасли РФ...")
-    articles = await fetch_space_news()
-    
-    rf_articles = [
-        art for art in articles 
-        if any(w in (art.get("title","") + art.get("summary","")).lower() for w in ["russia", "roscosmos", "soyuz", "proton", "angara"])
-    ]
-    
-    final_list = rf_articles if rf_articles else articles
-    user_news_cache[f"{message.from_user.id}_rf"] = final_list
+    await message.answer("🇷🇺 Переключаю на новости космонавтики РФ...")
     await send_news_item(message.from_user.id, message, category="rf")
+
+@dp.callback_query(F.data == "select_cat_rf")
+async def select_cat_rf_cb(callback: types.CallbackQuery):
+    await callback.message.answer("🇷🇺 Категория: **Новости космоса РФ**", parse_mode="Markdown")
+    await send_news_item(callback.from_user.id, callback, category="rf")
+
+@dp.callback_query(F.data == "select_cat_world")
+async def select_cat_world_cb(callback: types.CallbackQuery):
+    await callback.message.answer("🌍 Категория: **Новости космоса Мира**", parse_mode="Markdown")
+    await send_news_item(callback.from_user.id, callback, category="world")
 
 @dp.callback_query(F.data == "next_news")
 async def next_news_callback(callback: types.CallbackQuery):
@@ -250,9 +265,8 @@ async def generate_ai_post_callback(callback: types.CallbackQuery):
         await callback.answer("Выбери новость заново!", show_alert=True)
         return
 
-    await callback.message.answer("✍️ *Готовлю обработанный пост для публикации...*", parse_mode="Markdown")
+    await callback.message.answer("✍️ *Создаю готовый SMM-пост...*", parse_mode="Markdown")
 
-    # Теперь в генератор идут УЖЕ переведенные заголовки и тексты!
     ai_smm_post = await generate_smm_with_ai(
         data['ru_title'], 
         data['ru_summary'], 
