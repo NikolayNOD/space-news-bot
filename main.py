@@ -3,6 +3,7 @@ import asyncio
 import logging
 import json
 import aiohttp
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -12,6 +13,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 INTERVAL_MINUTES = int(os.getenv("FETCH_INTERVAL_MINUTES", "30"))
+PORT = int(os.getenv("PORT", 8080))
 
 DB_FILE = "published_news.json"
 
@@ -133,10 +135,28 @@ async def news_scheduler():
         await asyncio.sleep(INTERVAL_MINUTES * 60)
 
 
+# Веб-сервер, чтобы Render считал сервис активным
+async def handle_ping(request):
+    return web.Response(text="Space Bot is alive 🚀")
+
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+
+
 async def main():
     logging.basicConfig(level=logging.INFO)
     print("🚀 Бот автопостинга космоса запущен...")
+    
+    # Запускаем веб-сервер и планировщик
+    await start_web_server()
     asyncio.create_task(news_scheduler())
+    
     await dp.start_polling(bot)
 
 
