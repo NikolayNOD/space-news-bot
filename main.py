@@ -66,6 +66,7 @@ async def translate_text(text: str) -> str:
     return text
 
 def clean_text(text: str) -> str:
+    """Очистка текста от HTML-тегов и обрывов на конце"""
     if not text:
         return ""
     text = re.sub(r'<[^>]+>', '', text)
@@ -73,19 +74,19 @@ def clean_text(text: str) -> str:
     text = re.sub(r'\s*…\s*$', '.', text)
     return text.strip()
 
-def is_top_interesting_news(title: str, summary: str) -> bool:
-    """Фильтр: пропускает только самые СУПЕР-интересные новости"""
+def is_strictly_space_news(title: str, summary: str) -> bool:
+    """ЖЕСТКИЙ ФИЛЬТР: Пропускает ТОЛЬКО новости про космос"""
     content = (title + " " + summary).lower()
     
-    # Ключевые слова топовых космических событий
-    top_keywords = [
-        "launch", "spacex", "starship", "nasa", "moon", "mars", "roscosmos", "isro", 
-        "cnsa", "falcon", "artemis", "astronaut", "cosmonaut", "rocket", "station", "iss",
-        "запуск", "ракета", "союз", "луна", "марс", "мкс", "роскосмос", "китай", "индия",
-        "оаэ", "астронавт", "космонавт", "открытие", "станция", "посадка", "стерои"
+    space_keywords = [
+        "космос", "роскосмос", "орбита", "ракета", "спутник", "мкс", "запуск", 
+        "космонавт", "астронавт", "луна", "марс", "союз", "ангара", "главкосмос",
+        "телескоп", "астрономия", "астероид", "гравитация", "ики ран", "астрофизик",
+        "launch", "spacex", "starship", "nasa", "moon", "mars", "isro", 
+        "cnsa", "falcon", "artemis", "astronaut", "cosmonaut", "rocket", "station", "iss", "esa"
     ]
     
-    return any(keyword in content for keyword in top_keywords)
+    return any(keyword in content for keyword in space_keywords)
 
 async def generate_smm_with_ai(title: str, summary: str, url: str) -> str:
     """Генератор вирусных SMM-постов"""
@@ -99,15 +100,15 @@ async def generate_smm_with_ai(title: str, summary: str, url: str) -> str:
             "Content-Type": "application/json"
         }
         prompt = (
-            "Ты главный редактор крупного Telegram-канала о космосе. "
-            "Напиши вирусный, вовлекающий SMM-пост на РУССКОМ ЯЗЫКЕ на основе этой космической новости.\n\n"
-            "Структура:\n"
-            "1. Мощный заголовок с эмодзи.\n"
-            "2. Выжимка самых главных и интересных фактов (2 коротких абзаца).\n"
-            "3. Почему это важно для мировой науки/космонавтики.\n"
-            "4. Вопрос читателям для обсуждения.\n"
-            "5. 4-5 хэштегов.\n\n"
-            f"Новость: {title}\nПодробности: {summary}"
+            "Ты главный редактор популярного Telegram-канала о космосе. "
+            "Напиши крутой, яркий и вовлекающий SMM-пост на РУССКОМ ЯЗЫКЕ на основе этой космической новости.\n\n"
+            "Требования к посту:\n"
+            "1. Заголовок с эмодзи.\n"
+            "2. Выжимка главных фактов без сложной терминологии (2 небольших абзаца).\n"
+            "3. Интригующий вывод о значимости события.\n"
+            "4. Вопрос к аудитории для обсуждения в комментариях.\n"
+            "5. 4-5 актуальных хэштегов.\n\n"
+            f"Заголовок новости: {title}\nТекст: {summary}"
         )
         payload = {
             "model": "llama-3.3-70b-versatile",
@@ -120,33 +121,34 @@ async def generate_smm_with_ai(title: str, summary: str, url: str) -> str:
                     if resp.status == 200:
                         res = await resp.json()
                         post = res["choices"][0]["message"]["content"]
-                        return f"{post}\n\n🔗 [Читать первоисточник]({url})"
+                        return f"{post}\n\n🔗 [Читать источник]({url})"
         except Exception as e:
-            print(f"Ошибка Groq: {e}")
+            print(f"Ошибка Groq API: {e}")
 
-    # Локальный фоллбэк
+    # Локальный запасной генератор
     ru_title = await translate_text(title)
     ru_summary = await translate_text(summary)
     
     return (
-        f"🔥 **{ru_title.upper()}**\n\n"
-        f"📍 **Главная суть:**\n{ru_summary}\n\n"
-        f"💡 **Почему это событие важно?**\n"
-        f"Это шаг вперед в исследовании космоса, который влияет на развитие технологий США, Китая, РФ и Европы.\n\n"
-        f"💬 *Что думаете по этому поводу? Обсуждаем в комментариях!* 👇\n\n"
-        f"#космос #наука #технологии #астрономия #исследования\n"
-        f"🔗 [Первоисточник]({url})"
+        f"🚀 **{ru_title.upper()}**\n\n"
+        f"📍 **Главное к этому часу:**\n{ru_summary}\n\n"
+        f"💡 **Почему это важно?**\n"
+        f"Каждый такой шаг приближает нас к новым открытиям во Вселенной и освоению околоземного пространства.\n\n"
+        f"💬 *Что думаете по этому поводу? Делитесь в комментариях!* 👇\n\n"
+        f"#космос #наука #технологии #астрономия\n"
+        f"🔗 [Читать первоисточник]({url})"
     )
 
 async def fetch_roscosmos_and_rf_news():
-    """Топовые новости РФ (Роскосмос, ТАСС, РИА)"""
+    """Чистый парсинг ТОЛЬКО профильных космических источников РФ"""
     rf_sources = [
         {"url": "https://www.roscosmos.ru/rss/all.xml", "site": "Роскосмос (Официальный)"},
-        {"url": "https://tass.ru/rss/v2/news.xml?sections=NTM0", "site": "ТАСС (Космос)"},
-        {"url": "https://ria.ru/export/rss2/archive/index.xml", "site": "РИА Новости"}
+        {"url": "https://procosmos.ru/rss", "site": "Pro Cosmos"},
+        {"url": "https://tass.ru/rss/v2/news.xml?sections=NTM1", "site": "ТАСС Наука"}
     ]
+    
     articles = []
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
     async with aiohttp.ClientSession(headers=headers) as session:
         for source in rf_sources:
@@ -155,12 +157,13 @@ async def fetch_roscosmos_and_rf_news():
                     if response.status == 200:
                         content = await response.text()
                         root = ET.fromstring(content)
-                        for item in root.findall(".//item")[:15]:
+                        for item in root.findall(".//item")[:20]:
                             title = clean_text(item.find("title").text if item.find("title") is not None else "")
                             summary = clean_text(item.find("description").text if item.find("description") is not None else "")
                             link = item.find("link").text if item.find("link") is not None else ""
                             
-                            if title and link and is_top_interesting_news(title, summary):
+                            # Строгий контроль тематики
+                            if title and link and is_strictly_space_news(title, summary):
                                 articles.append({
                                     "id": link,
                                     "title": title,
@@ -171,11 +174,12 @@ async def fetch_roscosmos_and_rf_news():
                                     "is_ru": True
                                 })
             except Exception as e:
-                print(f"Ошибка РФ RSS: {e}")
+                print(f"Ошибка парсинга {source['site']}: {e}")
+
     return articles
 
 async def fetch_world_space_news():
-    """Мировые ТОП-новости (США, Китай, Индия, ОАЭ, Европа) на английском"""
+    """Загрузка мировых космических новостей (США, Китай, Индия, ОАЭ, ЕКА)"""
     url = "https://api.spaceflightnewsapi.net/v4/articles/?limit=40"
     articles = []
     try:
@@ -187,8 +191,7 @@ async def fetch_world_space_news():
                         title = clean_text(art.get("title", ""))
                         summary = clean_text(art.get("summary", ""))
                         
-                        # Фильтруем только главное и интересное
-                        if is_top_interesting_news(title, summary):
+                        if is_strictly_space_news(title, summary):
                             articles.append({
                                 "id": art.get("id"),
                                 "title": title,
@@ -199,7 +202,7 @@ async def fetch_world_space_news():
                                 "is_ru": False
                             })
     except Exception as e:
-        print(f"Ошибка мировых новостей: {e}")
+        print(f"Ошибка загрузки мировых новостей: {e}")
     return articles
 
 async def send_news_item(user_id: int, message_or_callback, category="world"):
@@ -222,7 +225,7 @@ async def send_news_item(user_id: int, message_or_callback, category="world"):
             break
 
     if not selected_article:
-        txt = "🎉 Вы просмотрели все топовые космические новости на сегодня!"
+        txt = "🎉 Вы просмотрели все актуальные космические новости в этом разделе!"
         inline_kb = get_article_inline_keyboard(category == "rf")
         if isinstance(message_or_callback, types.Message):
             await message_or_callback.answer(txt, reply_markup=inline_kb)
@@ -241,7 +244,7 @@ async def send_news_item(user_id: int, message_or_callback, category="world"):
     site = selected_article.get("news_site", "Space News")
     is_ru = selected_article.get("is_ru", False)
 
-    region_tag = "🇷🇺 КОСМОС РФ" if is_ru else "🌍 GLOBAL SPACE (USA, CHINA, INDIA, UAE, EU)"
+    region_tag = "🇷🇺 КОСМОС РФ" if is_ru else "🌍 GLOBAL SPACE NEWS"
 
     user_news_cache[f"{user_id}_current"] = {
         "title": title,
@@ -259,10 +262,9 @@ async def send_news_item(user_id: int, message_or_callback, category="world"):
             f"🌌 **{title}**\n\n"
             f"📖 {summary}\n\n"
             f"📡 **Источник:** {site}\n"
-            f"🔗 [Читать источник]({url})"
+            f"🔗 [Читать первоисточник]({url})"
         )
     else:
-        # Для мировых новостей отсылаем Оригинал на английском!
         caption_text = (
             f"✨ **[{region_tag}]**\n\n"
             f"🌌 **{title}**\n\n"
@@ -302,21 +304,20 @@ async def send_news_item(user_id: int, message_or_callback, category="world"):
 @dp.message(Command("menu"))
 async def start_handler(message: types.Message):
     await message.answer(
-        "🚀 **Топ-агрегатор космических новостей**\n\n"
-        "Мы отслеживаем главные события **США (NASA/SpaceX), Китая (CNSA), Индии (ISRO), ОАЭ, Европы (ESA) и Роскосмоса**!\n\n"
-        "Выбери ленту на кнопках внизу 👇",
+        "🚀 **Агрегатор космических новостей**\n\n"
+        "Выбери нужный раздел на кнопках ниже 👇",
         reply_markup=main_keyboard,
         parse_mode="Markdown"
     )
 
 @dp.message(F.text == "🌍 Топ-новости Мира (Eng)")
 async def world_news_handler(message: types.Message):
-    await message.answer("🛸 Сканирую мировые источники (США, Китай, Индия, ОАЭ, Европа)...")
+    await message.answer("🛸 Загружаю мировые космические новости...")
     await send_news_item(message.from_user.id, message, category="world")
 
 @dp.message(F.text == "🇷🇺 Новости космоса РФ")
 async def rf_news_handler(message: types.Message):
-    await message.answer("🇷🇺 Загрузка новостей Роскосмоса и ведущих космических СМИ...")
+    await message.answer("🇷🇺 Загружаю профильные новости Роскосмоса и науки...")
     await send_news_item(message.from_user.id, message, category="rf")
 
 @dp.callback_query(F.data == "next_news")
@@ -329,10 +330,10 @@ async def next_news_callback(callback: types.CallbackQuery):
 async def translate_full_callback(callback: types.CallbackQuery):
     data = user_news_cache.get(f"{callback.from_user.id}_current")
     if not data:
-        await callback.answer("Выбери новость заново!", show_alert=True)
+        await callback.answer("Новость не найдена, выбери заново!", show_alert=True)
         return
 
-    await callback.message.answer("🌐 *Перевожу оригинал на русский язык...*", parse_mode="Markdown")
+    await callback.message.answer("🌐 *Перевожу на русский...*", parse_mode="Markdown")
 
     ru_title = await translate_text(data['title'])
     ru_summary = await translate_text(data['summary'])
@@ -350,10 +351,10 @@ async def translate_full_callback(callback: types.CallbackQuery):
 async def generate_ai_post_callback(callback: types.CallbackQuery):
     data = user_news_cache.get(f"{callback.from_user.id}_current")
     if not data:
-        await callback.answer("Выбери новость заново!", show_alert=True)
+        await callback.answer("Новость не найдена, выбери заново!", show_alert=True)
         return
 
-    await callback.message.answer("✍️ *Создаю готовый SMM-пост для публикации...*", parse_mode="Markdown")
+    await callback.message.answer("✍️ *Формирую SMM-пост...*", parse_mode="Markdown")
 
     ai_smm_post = await generate_smm_with_ai(
         data['title'], 
@@ -379,7 +380,7 @@ async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
 async def main():
-    print("🚀 Старт топ-агрегатора космоса...")
+    print("🚀 Старт очищенного космического бота...")
     app = web.Application()
     app.router.add_get("/", handle_ping)
     runner = web.AppRunner(app)
