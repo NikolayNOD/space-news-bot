@@ -6,37 +6,36 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
+# Токен твоего бота
 TELEGRAM_BOT_TOKEN = "8811178509:AAHqCF3BIODntZfIM50d66t8nOGIIIyBVdU"
 PORT = int(os.getenv("PORT", 10000))
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 
-# Хранилище последних новостей для каждого пользователя
+# Хранилище последних новостей (оставим, но для кнопок будем использовать другой метод)
 user_last_article = {}
 
-# Главные кнопки выбора категории (внизу экрана)
+# Главное меню с кнопкой «Найти новости»
 main_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="🇷🇺 Новости космоса России")],
-        [KeyboardButton(text="🌍 Новости космоса Мира")]
-    ],
+    keyboard=[[KeyboardButton(text="🔍 Найти новости про космос")]],
     resize_keyboard=True
 )
 
-# Инлайн-кнопки действия под самой новостью
-def get_article_inline_keyboard():
+# Инлайн-кнопки под сообщением с новостью (мы убрали "make_post" и "translate_full", т.к. они вызывали сбой)
+# Теперь эти кнопки будут ссылками на специальные команды, которые мы обработаем
+def get_article_inline_keyboard(article_id):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="📝 Преобразовать в пост", callback_data="make_post"),
-                InlineKeyboardButton(text="🌐 Перевести оригинал", callback_data="translate_full")
+                InlineKeyboardButton(text="📝 Преобразовать в пост", callback_data=f"post_{article_id}"),
+                InlineKeyboardButton(text="🌐 Перевести оригинал", callback_data=f"trans_{article_id}")
             ]
         ]
     )
 
 async def translate_text(text: str, target_lang="ru") -> str:
-    """Автоматический перевод текста через MyMemory API"""
+    """Бесплатный автоперевод текста через MyMemory API"""
     if not text:
         return ""
     url = f"https://api.mymemory.translated.net/get?q={text[:500]}&langpair=en|{target_lang}"
@@ -51,9 +50,10 @@ async def translate_text(text: str, target_lang="ru") -> str:
         print(f"Ошибка перевода: {e}")
     return text
 
-async def fetch_world_space_news():
-    """Загрузка мировых новостей космоса"""
-    url = "https://api.spaceflightnewsapi.net/v4/articles/?limit=5"
+async def fetch_latest_space_news():
+    """Загрузка свежих новостей космоса со всего мира"""
+    # Мы берем 10 новостей, чтобы было из чего выбрать, если Render перезапустится
+    url = "https://api.spaceflightnewsapi.net/v4/articles/?limit=10"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
             if response.status == 200:
@@ -61,128 +61,119 @@ async def fetch_world_space_news():
                 return data.get("results", [])
     return []
 
-# 1. При приветствии отправляем кнопки выбора
 @dp.message(Command("start"))
 async def start_handler(message: types.Message):
     await message.answer(
-        "🚀 **Привет! Я космический бот. Буду присылать тебе свежие новости о космосе!**\n\n"
-        "Выбери, какие новости тебя интересуют:",
+        "🚀 **Привет! Я твой космический ассистент.**\n\n"
+        "Нажимай кнопку **«🔍 Найти новости про космос»**, чтобы я собрал самые интересные события со всего мира!",
         reply_markup=main_keyboard,
         parse_mode="Markdown"
     )
 
-# 2. Обработка нажатия «🌍 Новости космоса Мира»
-@dp.message(F.text == "🌍 Новости космоса Мира")
-async def world_news_handler(message: types.Message):
-    await message.answer("🛸 Поиск мировых космических новостей...")
-    articles = await fetch_world_space_news()
+@dp.message(F.text == "🔍 Найти новости про космос")
+async def search_news_handler(message: types.Message):
+    await message.answer("🛸 Сканирую космические источники со всего мира... Ожидай!")
+    
+    articles = await fetch_latest_space_news()
     if not articles:
-        await message.answer("❌ К сожалению, свежих мировых новостей пока не найдено.")
+        await message.answer("❌ К сожалению, свежих новостей пока не найдено.")
         return
 
+    # Берем самую свежую новость
     article = articles[0]
     title = article.get("title", "")
     summary = article.get("summary", "")
     url = article.get("url", "")
-
+    article_id = article.get("id") # Важный ID новости
+    
+    # Переводим заголовок и краткое описание
     translated_title = await translate_text(title)
     translated_summary = await translate_text(summary)
-
-    user_last_article[message.from_user.id] = {
-        "raw_title": title,
-        "raw_summary": summary,
-        "title": translated_title,
-        "summary": translated_summary,
-        "url": url,
-        "category": "Мир"
-    }
-
+    
+    # Сохраняем в память (на всякий случай, но кнопки теперь надежнее)
+    user_last_article[message.from_user.id] = article
+    
+    # Формируем текст сообщения
     text = (
-        f"🌍 **МИРОВЫЕ НОВОСТИ КОСМОСА**\n\n"
         f"🌌 **{translated_title}**\n\n"
         f"{translated_summary}\n\n"
-        f"🔗 **Источник:** [Читать оригинал]({url})"
+        f"🔗 **Источник:** [Читать оригинал]({url})\n"
+        f"*(Оригинальный заголовок: {title})*"
     )
-    await message.answer(text, reply_markup=get_article_inline_keyboard(), parse_mode="Markdown")
-
-# 3. Обработка нажатия «🇷🇺 Новости космоса России»
-@dp.message(F.text == "🇷🇺 Новости космоса России")
-async def russia_news_handler(message: types.Message):
-    await message.answer("🛸 Поиск космических новостей России (Роскосмос)...")
-    articles = await fetch_world_space_news()
     
-    # Находим новость с упоминанием Роскосмоса/России, или берем актуальную космическую
-    selected = None
-    for art in articles:
-        text_full = (art.get("title", "") + art.get("summary", "")).lower()
-        if "russia" in text_full or "roscosmos" in text_full or "soyuz" in text_full:
-            selected = art
-            break
-    
-    if not selected:
-        selected = articles[0] if articles else None
+    # Отправляем сообщение с кнопками, которые привязаны к ID новости
+    await message.answer(text, reply_markup=get_article_inline_keyboard(article_id), parse_mode="Markdown", disable_web_page_preview=False)
 
-    if not selected:
-        await message.answer("❌ Новостей пока не найдено.")
+# --- НОВЫЕ ХЕНДЛЕРЫ ДЛЯ КНОПОК, КОТОРЫЕ НЕ СБОЯТ ---
+
+# 1. Хендлер для кнопки "Преобразовать в пост"
+@dp.callback_query(F.data.startswith("post_"))
+async def make_post_callback_fixed(callback: types.CallbackQuery):
+    # Получаем ID новости из даты кнопки
+    article_id = callback.data.split("_")[1]
+    
+    # Пытаемся найти эту новость в последних загруженных (это быстро)
+    # Это надежнее, чем хранить в user_last_article
+    articles = await fetch_latest_space_news()
+    article = next((a for a in articles if str(a.get("id")) == article_id), None)
+
+    if not article:
+        # Если новость совсем старая и ушла из списка 10 последних, мы её не восстановим
+        await callback.answer("Упс! Эта новость слишком старая, я её больше не вижу в источниках. Найди новую!", show_alert=True)
         return
 
-    title = selected.get("title", "")
-    summary = selected.get("summary", "")
-    url = selected.get("url", "")
-
+    # Если нашли, делаем пост
+    title = article.get("title", "")
+    summary = article.get("summary", "")
+    url = article.get("url", "")
+    
     translated_title = await translate_text(title)
     translated_summary = await translate_text(summary)
 
-    user_last_article[message.from_user.id] = {
-        "raw_title": title,
-        "raw_summary": summary,
-        "title": translated_title,
-        "summary": translated_summary,
-        "url": url,
-        "category": "Россия"
-    }
-
-    text = (
-        f"🇷🇺 **НОВОСТИ КОСМОСА РОССИИ И РОСКОСМОСА**\n\n"
-        f"🚀 **{translated_title}**\n\n"
-        f"{translated_summary}\n\n"
-        f"🔗 **Источник:** [Читать источник]({url})"
-    )
-    await message.answer(text, reply_markup=get_article_inline_keyboard(), parse_mode="Markdown")
-
-# Кнопка «📝 Преобразовать в пост»
-@dp.callback_query(F.data == "make_post")
-async def make_post_callback(callback: types.CallbackQuery):
-    data = user_last_article.get(callback.from_user.id)
-    if not data:
-        await callback.answer("Пожалуйста, выбери новость заново!", show_alert=True)
-        return
-
     post_text = (
-        f"🚀 **НОВОСТИ КОСМОСА ({data['category'].upper()})**\n\n"
-        f"✨ **{data['title']}**\n\n"
-        f"📌 {data['summary']}\n\n"
-        f"💬 *Что вы думаете об этом космическом событии?*\n\n"
-        f"🔗 [Первоисточник]({data['url']})"
+        f"🚀 **ПОСЛЕДНИЕ НОВОСТИ КОСМОСА**\n\n"
+        f"✨ **{translated_title}**\n\n"
+        f"📌 {translated_summary}\n\n"
+        f"💬 *А что вы думаете об этом открытии? Пишите в комментариях!*\n\n"
+        f"🔗 [Ссылка на первоисточник]({url})"
     )
+    
+    # Отправляем готовый пост новым сообщением
     await callback.message.answer(f"📝 **Готовый пост для публикации:**\n\n{post_text}", parse_mode="Markdown")
+    # Обязательно отвечаем на колбэк, чтобы кнопка перестала "часики" крутить
     await callback.answer()
 
-# Кнопка «🌐 Перевести оригинал»
-@dp.callback_query(F.data == "translate_full")
-async def translate_full_callback(callback: types.CallbackQuery):
-    data = user_last_article.get(callback.from_user.id)
-    if not data:
-        await callback.answer("Пожалуйста, выбери новость заново!", show_alert=True)
+# 2. Хендлер для кнопки "Перевести оригинал"
+@dp.callback_query(F.data.startswith("trans_"))
+async def translate_full_callback_fixed(callback: types.CallbackQuery):
+    # Получаем ID новости
+    article_id = callback.data.split("_")[1]
+    
+    # Ищем новость
+    articles = await fetch_latest_space_news()
+    article = next((a for a in articles if str(a.get("id")) == article_id), None)
+
+    if not article:
+        await callback.answer("Упс! Эта новость слишком старая, я её больше не вижу в источниках. Найди новую!", show_alert=True)
         return
 
+    # Если нашли, делаем полный перевод
+    title = article.get("title", "")
+    summary = article.get("summary", "")
+    url = article.get("url", "")
+    
+    translated_title = await translate_text(title)
+    translated_summary = await translate_text(summary)
+
     full_translation = (
-        f"🌐 **Точный перевод статьи:**\n\n"
-        f"**Заголовок:** {data['title']}\n"
-        f"*(Оригинал: {data['raw_title']})*\n\n"
-        f"**Текст:** {data['summary']}\n\n"
-        f"🔗 **Ссылка:** {data['url']}"
+        f"🌐 **Точный перевод оригинала:**\n\n"
+        f"**Заголовок:** {translated_title}\n"
+        f"*(Оригинал: {title})*\n\n"
+        f"**Описание:** {translated_summary}\n\n"
+        f"🔗 **Ссылка на статью:** {url}"
     )
+    
+    # Отправляем перевод новым сообщением
     await callback.message.answer(full_translation, parse_mode="Markdown")
     await callback.answer()
 
@@ -190,7 +181,9 @@ async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
 async def main():
-    print("🚀 Бот запустился...")
+    print("🚀 Старт сервера и обновленного бота...")
+    
+    # Веб-сервер для Render
     app = web.Application()
     app.router.add_get("/", handle_ping)
     runner = web.AppRunner(app)
@@ -198,6 +191,7 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
     
+    # Запуск обработки команд
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
