@@ -6,12 +6,11 @@ import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from openai import AsyncOpenAI
+from groq import AsyncGroq
 
-# Получаем переменные из окружения сервера
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 INTERVAL_MINUTES = int(os.getenv("FETCH_INTERVAL_MINUTES", "30"))
 
 DB_FILE = "published_news.json"
@@ -21,7 +20,7 @@ bot = Bot(
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 )
 dp = Dispatcher()
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+groq_client = AsyncGroq(api_key=GROQ_API_KEY)
 
 
 def load_published_ids() -> set:
@@ -53,7 +52,7 @@ async def fetch_latest_space_news():
             return []
 
 
-async def generate_post_with_gpt(title: str, summary: str, news_url: str) -> str:
+async def generate_post_with_ai(title: str, summary: str, news_url: str) -> str:
     prompt = f"""
 Ты — профессиональный космический журналист. Напиши увлекательный пост для Telegram-канала.
 
@@ -64,26 +63,22 @@ async def generate_post_with_gpt(title: str, summary: str, news_url: str) -> str
 
 Требования к оформлению:
 1. Заголовок: Завлекающий, с тематическими эмодзи (🚀, 🌌 и т.д.).
-2. Перевод и адаптация (на русском):
-   - Интересный, простой для чтения пересказ новости.
-   - Объясни кратко, почему это важно.
-3. Оригинальный фрагмент (на английском):
-   - Вставь 1-2 предложения цитаты из оригинала.
-4. Ссылка:
-   - В конце укажи прямую ссылку на первоисточник.
+2. Перевод и адаптация (на русском): Интересный, простой для чтения пересказ новости.
+3. Оригинальный фрагмент (на английском): Вставь 1-2 предложения цитаты из оригинала.
+4. Ссылка: В конце укажи прямую ссылку на первоисточник.
 5. Использовать ТОЛЬКО теги HTML (<b>, <i>, <a href="...">).
 
 Верни ТОЛЬКО готовый текст поста.
 """
     try:
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+        response = await groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7
         )
         return response.choices[0].message.content
     except Exception as e:
-        logging.error(f"Ошибка OpenAI: {e}")
+        logging.error(f"Ошибка AI: {e}")
         return None
 
 
@@ -104,7 +99,7 @@ async def process_and_send_news():
         url = article.get("url")
         image_url = article.get("image_url")
 
-        post_text = await generate_post_with_gpt(title, summary, url)
+        post_text = await generate_post_with_ai(title, summary, url)
         if not post_text:
             continue
 
